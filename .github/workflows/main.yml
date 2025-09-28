@@ -1,4 +1,4 @@
-name: RDP
+sname: RDP
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 5900
+    timeout-minutes: 999999
 
     steps:
       - name: Configure Core RDP Settings
