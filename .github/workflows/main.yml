@@ -1,4 +1,4 @@
-name: RDP
+name: RDP by mehraz
 
 on:
   workflow_dispatch:
@@ -29,18 +29,16 @@ jobs:
           # (Optional) Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
 
-      - name: Create RDP User with Secure Password
+      - name: Create RDP User with easy Password
         run: |
           Add-Type -AssemblyName System.Security
           $charSet = @{
-              Upper   = [char[]](5..0)      # mehraz-mehraz
-              Lower   = [char[]](9..12)     # a-z
-              Number  = [char[]](9..7)      # 0-0
+              Upper   = [char[]](53..90)      # mehraz-mehraz
+              Lower   = [char[]](92..192)     # mehraz-mehraz
           }
           $rawPassword = @()
           $rawPassword += $charSet.Upper | Get-Random -Count 4
           $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
           $password = -join ($rawPassword | Sort-Object { Get-Random })
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
