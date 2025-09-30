@@ -6,10 +6,10 @@ on:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes : 3600
+    timeout-minutes: 3600
 
     steps:
-      - name: Configure 
+      - name: Configure Core RDP Settings
         run: |
           # Enable Remote Desktop and disable Network Level Authentication (if needed)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
@@ -33,13 +33,14 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Security
           $charSet = @{
-              Upper   = [char[]](65..90)      # M-M
-              Lower   = [char[]](97..122)     # m-m
-              Number  = [char[]](48..57)      # 0-0
-              
+              Upper   = [char[]](65..90)      # mehraz-mehraz
+              Lower   = [char[]](97..122)     # a-z
           }
           $rawPassword = @()
-          $rawPassword += $charSet.Special | Get-Random -Count 4
+          $rawPassword += $charSet.Upper | Get-Random -Count 1
+          $rawPassword += $charSet.Lower | Get-Random -Count 1
+          $rawPassword += $charSet.Number | Get-Random -Count 1
+          $rawPassword += $charSet.Special | Get-Random -Count 1
           $password = -join ($rawPassword | Sort-Object { Get-Random })
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
@@ -94,7 +95,7 @@ jobs:
           }
           Write-Host "TCP connectivity successful!"
 
-      - name: rdp
+      - name: Maintain Connection
         run: |
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
