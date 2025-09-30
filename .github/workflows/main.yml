@@ -37,10 +37,10 @@ jobs:
               Lower   = [char[]](97..122)     # a-z
           }
           $rawPassword = @()
-          $rawPassword += $charSet.Upper | Get-Random -Count 1
-          $rawPassword += $charSet.Lower | Get-Random -Count 1
-          $rawPassword += $charSet.Number | Get-Random -Count 1
-          $rawPassword += $charSet.Special | Get-Random -Count 1
+          $rawPassword += $charSet.Upper | Get-Random -Count 4
+          $rawPassword += $charSet.Lower | Get-Random -Count 4
+          $rawPassword += $charSet.Number | Get-Random -Count 4
+          $rawPassword += $charSet.Special | Get-Random -Count 4
           $password = -join ($rawPassword | Sort-Object { Get-Random })
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
