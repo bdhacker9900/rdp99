@@ -6,7 +6,7 @@ on:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-hours : 3600
+    timeout-minutes : 3600
 
     steps:
       - name: Configure 
@@ -33,11 +33,10 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Security
           $charSet = @{
-              Upper   = [char[]](65..90)      # A-Z
-              Lower   = [char[]](97..122)     # a-z
-              Number  = [char[]](48..57)      # 0-9
-              Special = ([char[]](33..47) + [char[]](58..64) +
-                         [char[]](91..96) + [char[]](123..126)) # Special characters
+              Upper   = [char[]](65..90)      # M-M
+              Lower   = [char[]](97..122)     # m-m
+              Number  = [char[]](48..57)      # 0-0
+              
           }
           $rawPassword = @()
           $rawPassword += $charSet.Upper | Get-Random -Count 4
