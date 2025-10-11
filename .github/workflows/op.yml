@@ -17,7 +17,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            xfce4 xfce4-goodies xorg dbus-x11 x11-xserver-utils \
+            xfce4 xfce4-goodies xfce4-terminal xorg dbus dbus-x11 x11-xserver-utils \
             xrdp net-tools iproute2 curl
           sudo systemctl enable xrdp
           sudo systemctl restart xrdp
