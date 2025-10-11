@@ -1,0 +1,54 @@
+name: Ubuntu RDP via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu-rdp:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install desktop and xrdp
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            xfce4 xfce4-goodies xorg dbus-x11 x11-xserver-utils \
+            xrdp net-tools iproute2 curl
+          sudo systemctl enable xrdp
+          sudo systemctl restart xrdp
+
+      - name: Create rdp user and set password
+        run: |
+          sudo useradd -m -s /bin/bash rdpuser || true
+          echo "rdpuser:mehraz@op099" | sudo chpasswd
+          echo "xfce4-session" | sudo tee /home/rdpuser/.xsession
+          sudo chown rdpuser:rdpuser /home/rdpuser/.xsession
+
+      - name: Configure xrdp to use Xorg and allow rdpuser
+        run: |
+          sudo sed -i 's/^new_cursors=true/#new_cursors=true/' /etc/xrdp/xrdp.ini || true
+          sudo bash -c 'echo "AllowedUsers=rdpuser" >> /etc/xrdp/sesman.ini'
+          sudo systemctl restart xrdp
+
+      - name: Install Tailscale and auth with authkey
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --accept-routes=false --accept-dns=false || sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Show Tailscale IP and status
+        id: ts
+        run: |
+          sudo tailscale status --json || sudo tailscale status
+          TSIP=$(sudo tailscale ip -4 | head -n1)
+          echo "TAILSCALE_IP=${TSIP}" >> $GITHUB_OUTPUT
+          echo "Tailscale IP: ${TSIP}:3389"
+
+      - name: Keep job alive for interactive use
+        run: |
+          echo "Runner will sleep for 30 minutes to allow RDP connection"
+          sleep 1800
