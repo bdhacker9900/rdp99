@@ -1,0 +1,62 @@
+# .github/workflows/windows11-rdp-tailscale.yml
+name: Windows 11 Pro RDP via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp-via-tailscale:
+    runs-on: windows-latest
+    # let this job live up to 24 hours (1440 minutes)
+    timeout-minutes: 1440
+    env:
+      # store your Tailnet auth key in
+      # Settings → Secrets → New repository secret → TAILSCALE_AUTHKEY
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+    steps:
+      - name: Create user “mehraz9”
+        run: |
+          net user mehraz9 "mehraz990088" /add
+          net localgroup Administrators mehraz9 /add
+
+      - name: Enable Windows Remote Desktop
+        shell: powershell
+        run: |
+          # allow RDP connections
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' `
+            -Name "fDenyTSConnections" -Value 0
+          # open firewall for RDP
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      - name: Install Tailscale
+        shell: powershell
+        run: |
+          # download and install silently
+          Invoke-WebRequest `
+            -Uri "https://pkgs.tailscale.com/stable/win/tailscale-setup.exe" `
+            -OutFile "$env:RUNNER_TEMP\tailscale-setup.exe"
+          Start-Process "$env:RUNNER_TEMP\tailscale-setup.exe" `
+            -ArgumentList '/SILENT' -NoNewWindow -Wait
+          # ensure the service is running
+          Start-Service Tailscale
+
+      - name: Authenticate & bring up Tailscale
+        shell: powershell
+        run: |
+          tailscale up `
+            --authkey $Env:TAILSCALE_AUTHKEY `
+            --hostname github-windows11 `
+            --accept-routes `
+            --accept-dns
+
+      - name: Show your Tailscale IP
+        shell: powershell
+        run: |
+          $ip = tailscale ip -4
+          Write-Host "Connect your RDP client to: $ip"
+
+      - name: Keep session alive for 24 hours
+        shell: powershell
+        run: Start-Sleep -Seconds 86400
+        
