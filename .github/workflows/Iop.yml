@@ -1,0 +1,52 @@
+# .github/workflows/chrome-remote-lxde.yml
+name: Ubuntu LXDE via Chrome Remote Desktop
+
+on:
+  workflow_dispatch:
+
+jobs:
+  chrome-remote-desktop:
+    runs-on: ubuntu-latest
+    env:
+      # Headless registration code from
+      # https://remotedesktop.google.com/headless
+      CRD_HEADLESS_CODE: ${{ secrets.CRD_HEADLESS_CODE }}
+      # Usually https://remotedesktop.google.com/headless
+      CRD_REDIRECT_URL: ${{ secrets.CRD_REDIRECT_URL }}
+      CRD_HOSTNAME: github-runner
+      # PIN for CRD access (must match twice)
+      CRD_PIN: 123456789
+
+    steps:
+      - name: Install LXDE & prerequisites
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y lxde-core wget dbus-x11 sudo
+
+      - name: Create user “mehraz”
+        run: |
+          sudo useradd -m -s /bin/bash mehraz
+          echo "mehraz:123456789" | sudo chpasswd
+          sudo usermod -aG sudo mehraz
+
+      - name: Install Chrome Remote Desktop Host
+        run: |
+          wget -O /tmp/crd.deb \
+            https://dl.google.com/linux/direct/chrome-remote-desktop_current_amd64.deb
+          sudo apt install -y /tmp/crd.deb
+          sudo apt-get install -f -y
+
+      - name: Register host for headless access
+        run: |
+          # feed PIN twice into the registration command
+          printf '%s\n' "$CRD_PIN" "$CRD_PIN" | \
+            sudo -u mehraz DISPLAY=:0 \
+            /opt/google/chrome-remote-desktop/chrome-remote-desktop-host \
+              --code="$CRD_HEADLESS_CODE" \
+              --redirect-url="$CRD_REDIRECT_URL" \
+              --name="$CRD_HOSTNAME"
+
+      - name: Keep the runner alive
+        run: sleep infinity
+        
