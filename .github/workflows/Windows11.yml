@@ -12,7 +12,7 @@ jobs:
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
 
     steps:
-      - name: Create user “mehraz9” with a complex password
+      - name: Create user “mehraz9” with complex password
         shell: cmd
         run: |
           net user mehraz9 "Mehraz@990088!" /add /passwordchg:no /expires:never
@@ -25,14 +25,14 @@ jobs:
             -Name fDenyTSConnections -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-      - name: Install Tailscale
+      - name: Download and install Tailscale
         shell: powershell
         run: |
-          Invoke-WebRequest `
-            -Uri "https://pkgs.tailscale.com/stable/win/tailscale-setup.exe" `
-            -OutFile "$Env:RUNNER_TEMP\tailscale-setup.exe"
-          Start-Process "$Env:RUNNER_TEMP\tailscale-setup.exe" `
-            -ArgumentList '/SILENT' -NoNewWindow -Wait
+          # Correct stable URL for Windows installer
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe"
+          $out = "$env:RUNNER_TEMP\tailscale-setup.exe"
+          Invoke-WebRequest -Uri $url -OutFile $out
+          Start-Process $out -ArgumentList "/quiet" -Wait
           Start-Service Tailscale
 
       - name: Authenticate & bring up Tailscale
