@@ -7,38 +7,32 @@ on:
 jobs:
   rdp-via-tailscale:
     runs-on: windows-latest
-    # let this job live up to 24 hours (1440 minutes)
     timeout-minutes: 1440
     env:
-      # store your Tailnet auth key in
-      # Settings → Secrets → New repository secret → TAILSCALE_AUTHKEY
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
 
     steps:
-      - name: Create user “mehraz9”
+      - name: Create user “mehraz9” with a complex password
+        shell: cmd
         run: |
-          net user mehraz9 "mehraz990088" /add
+          net user mehraz9 "Mehraz@990088!" /add /passwordchg:no /expires:never
           net localgroup Administrators mehraz9 /add
 
       - name: Enable Windows Remote Desktop
         shell: powershell
         run: |
-          # allow RDP connections
           Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' `
-            -Name "fDenyTSConnections" -Value 0
-          # open firewall for RDP
+            -Name fDenyTSConnections -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
       - name: Install Tailscale
         shell: powershell
         run: |
-          # download and install silently
           Invoke-WebRequest `
             -Uri "https://pkgs.tailscale.com/stable/win/tailscale-setup.exe" `
-            -OutFile "$env:RUNNER_TEMP\tailscale-setup.exe"
-          Start-Process "$env:RUNNER_TEMP\tailscale-setup.exe" `
+            -OutFile "$Env:RUNNER_TEMP\tailscale-setup.exe"
+          Start-Process "$Env:RUNNER_TEMP\tailscale-setup.exe" `
             -ArgumentList '/SILENT' -NoNewWindow -Wait
-          # ensure the service is running
           Start-Service Tailscale
 
       - name: Authenticate & bring up Tailscale
