@@ -1,0 +1,56 @@
+
+name: Ubuntu LXDE RDP via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    env:
+      # Store your Tailnet auth key in
+      # Repo Settings → Secrets → New repository secret
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+    steps:
+      - name: Prepare system
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y\
+            lxde-core xrdp \
+            sudo curl gnupg2
+
+      - name: Create user “mehraz”
+        run: |
+          sudo useradd -m -s /bin/bash mehraz
+          echo "mehraz:123456789" | sudo chpasswd
+          sudo usermod -aG sudo mehraz
+
+      - name: Configure xrdp to use LXDE
+        run: |
+          echo "startlxde" | sudo tee /home/mehraz/.xsession
+          sudo chown mehraz:mehraz /home/mehraz/.xsession
+          sudo systemctl enable xrdp
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sudo sh
+          sudo systemctl enable --now tailscaled
+
+      - name: Authenticate & bring up Tailscale
+        run: |
+          sudo tailscale up \
+            --authkey=${TAILSCALE_AUTHKEY} \
+            --hostname=github-rdp \
+            --accept-routes \
+            --accept-dns
+
+      - name: Show Tailscale IP
+        run: |
+          echo "Connect your RDP client to:"
+          sudo tailscale ip -4
+
+      - name: Keep runner alive
+        # this step prevents the job from exiting so you can SSH/RDP in
+        run: sleep infinity
+        
