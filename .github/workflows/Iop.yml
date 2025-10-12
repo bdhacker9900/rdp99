@@ -1,4 +1,4 @@
-# .github/workflows/chrome-remote-lxde.yml
+
 name: Ubuntu LXDE via Chrome Remote Desktop
 
 on:
@@ -8,13 +8,9 @@ jobs:
   chrome-remote-desktop:
     runs-on: ubuntu-latest
     env:
-      # Headless registration code from
-      # https://remotedesktop.google.com/headless
       CRD_HEADLESS_CODE: ${{ secrets.CRD_HEADLESS_CODE }}
-      # Usually https://remotedesktop.google.com/headless
       CRD_REDIRECT_URL: ${{ secrets.CRD_REDIRECT_URL }}
       CRD_HOSTNAME: github-runner
-      # PIN for CRD access (must match twice)
       CRD_PIN: 123456789
 
     steps:
@@ -22,7 +18,12 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo DEBIAN_FRONTEND=noninteractive \
-            apt-get install -y lxde-core wget dbus-x11 sudo
+            apt-get install -y \
+              lxde-core \
+              wget \
+              dbus-x11 \
+              xvfb \
+              sudo
 
       - name: Create user “mehraz”
         run: |
@@ -37,15 +38,25 @@ jobs:
           sudo apt install -y /tmp/crd.deb
           sudo apt-get install -f -y
 
-      - name: Register host for headless access
+      - name: Start virtual X server on :0
         run: |
-          # feed PIN twice into the registration command
+          # starts Xvfb in the background on :0 so CRD can open a Gtk window
+          Xvfb :0 -screen 0 1920x1080x24 &
+          sleep 5
+
+      - name: Register & start CRD host
+        run: |
+          # feed the PIN twice into the headless registration
           printf '%s\n' "$CRD_PIN" "$CRD_PIN" | \
-            sudo -u mehraz DISPLAY=:0 \
+            sudo -u mehraz \
+            DISPLAY=:0 \
             /opt/google/chrome-remote-desktop/chrome-remote-desktop-host \
               --code="$CRD_HEADLESS_CODE" \
               --redirect-url="$CRD_REDIRECT_URL" \
               --name="$CRD_HOSTNAME"
+
+          # enable and start the systemd service so it picks up the new config
+          sudo systemctl enable --now chrome-remote-desktop@mehraz
 
       - name: Keep the runner alive
         run: sleep infinity
