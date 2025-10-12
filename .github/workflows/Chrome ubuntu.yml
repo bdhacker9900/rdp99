@@ -1,0 +1,59 @@
+# .github/workflows/anydesk-lxde.yml
+name: Ubuntu LXDE via AnyDesk
+
+on:
+  workflow_dispatch:
+
+jobs:
+  anydesk-desktop:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Prepare system & install desktop
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y \
+              lxde-core \
+              xorg \
+              xvfb \
+              dbus-x11 \
+              wget \
+              sudo
+
+      - name: Create user “mehraz”
+        run: |
+          sudo useradd -m -s /bin/bash mehraz
+          echo "mehraz:123456789" | sudo chpasswd
+          sudo usermod -aG sudo mehraz
+
+      - name: Start a virtual X server + LXDE
+        run: |
+          # launch Xvfb on :0 so AnyDesk has a display
+          Xvfb :0 -screen 0 1920x1080x24 &
+          sleep 5
+          # run LXDE as “mehraz” on that display
+          sudo -u mehraz bash -c "export DISPLAY=:0; dbus-launch --exit-with-session startlxde" &
+      
+      - name: Install AnyDesk
+        run: |
+          # add AnyDesk apt repo
+          wget -qO - https://keys.anydesk.com/repos/DEB-GPG-KEY | sudo apt-key add -
+          echo "deb http://deb.anydesk.com/ all main" | sudo tee /etc/apt/sources.list.d/anydesk-stable.list
+          sudo apt-get update -y
+          sudo apt-get install -y anydesk
+
+      - name: Configure unattended access password
+        run: |
+          # set the access password for incoming connections
+          sudo anydesk --set-password 123456789
+          # enable and start the service
+          sudo systemctl enable --now anydesk.service
+
+      - name: Show your AnyDesk ID
+        run: |
+          echo "Connect with ID →" $(anydesk --get-id)
+      
+      - name: Keep runner alive
+        run: sleep infinity
+        
