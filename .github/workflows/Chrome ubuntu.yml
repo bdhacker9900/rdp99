@@ -9,51 +9,62 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Prepare system & install desktop
+      - name: Install LXDE & Xvfb
         run: |
           sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive \
-            apt-get install -y \
-              lxde-core \
-              xorg \
-              xvfb \
-              dbus-x11 \
-              wget \
-              sudo
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            lxde-core \
+            xorg \
+            xvfb \
+            dbus-x11 \
+            wget \
+            sudo
 
-      - name: Create user “mehraz”
+      - name: Create “mehraz” user
         run: |
-          sudo useradd -m -s /bin/bash mehraz
+          if ! id -u mehraz >/dev/null 2>&1; then
+            sudo useradd -m -s /bin/bash mehraz
+          fi
           echo "mehraz:123456789" | sudo chpasswd
           sudo usermod -aG sudo mehraz
 
-      - name: Start a virtual X server + LXDE
+      - name: Start virtual X server & LXDE session
         run: |
-          # launch Xvfb on :0 so AnyDesk has a display
-          Xvfb :0 -screen 0 1920x1080x24 &
-          sleep 5
-          # run LXDE as “mehraz” on that display
-          sudo -u mehraz bash -c "export DISPLAY=:0; dbus-launch --exit-with-session startlxde" &
-      
-      - name: Install AnyDesk
+          # Launch Xvfb on :0 so AnyDesk has a display
+          nohup Xvfb :0 -screen 0 1920x1080x24 > /tmp/xvfb.log 2>&1 &
+          sleep 3
+          # Start LXDE under mehraz on DISPLAY :0
+          sudo -u mehraz bash -c '
+            export DISPLAY=:0
+            dbus-launch --exit-with-session startlxde &
+          '
+
+      - name: Install AnyDesk & configure access
         run: |
-          # add AnyDesk apt repo
+          # Add AnyDesk repository and install
           wget -qO - https://keys.anydesk.com/repos/DEB-GPG-KEY | sudo apt-key add -
-          echo "deb http://deb.anydesk.com/ all main" | sudo tee /etc/apt/sources.list.d/anydesk-stable.list
+          echo "deb http://deb.anydesk.com/ all main" | sudo tee /etc/apt/sources.list.d/anydesk.list
           sudo apt-get update -y
           sudo apt-get install -y anydesk
 
-      - name: Configure unattended access password
-        run: |
-          # set the access password for incoming connections
+          # Set unattended‐access password
           sudo anydesk --set-password 123456789
-          # enable and start the service
-          sudo systemctl enable --now anydesk.service
 
-      - name: Show your AnyDesk ID
-        run: |
-          echo "Connect with ID →" $(anydesk --get-id)
-      
+          # Start AnyDesk service
+          sudo service anydesk start
+
+          # Wait for AnyDesk ID and print it
+          for i in {1..10}; do
+            ID=$(anydesk --get-id)
+            if [ -n "$ID" ]; then
+              echo "Your AnyDesk ID → $ID"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: Unable to fetch AnyDesk ID" >&2
+          exit 1
+
       - name: Keep runner alive
         run: sleep infinity
         
