@@ -1,4 +1,4 @@
-name: Ubuntu RDP via Tailscale
+name: Windows RDP via Tailscale
 
 on:
   workflow_dispatch:
@@ -9,204 +9,261 @@ on:
         type: string
 
 jobs:
-  ubuntu-rdp:
-    runs-on: ubuntu-latest
+  windows-rdp:
+    runs-on: windows-latest
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
     
-    - name: Setup Ubuntu Desktop Environment
+    - name: Enable RDP
+      shell: powershell
       run: |
-        sudo apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          xfce4 \
-          xfce4-goodies \
-          xrdp \
-          xorg \
-          dbus-x11 \
-          x11-xserver-utils \
-          wget \
-          curl \
-          nano \
-          git \
-          firefox \
-          jq \
-          net-tools
-    
-    - name: Configure XRDP
-      run: |
-        # Start XRDP service (without systemctl since we're in container)
-        sudo service xrdp start || true
+        # Enable Remote Desktop
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         
-        # Configure XRDP to use Xfce
-        sudo sed -i 's/port=3389/port=3390/g' /etc/xrdp/xrdp.ini
-        sudo sed -i 's/max_bpp=32/#max_bpp=32\nmax_bpp=128/g' /etc/xrdp/xrdp.ini
-        sudo sed -i 's/xserverbpp=24/#xserverbpp=24\nxserverbpp=128/g' /etc/xrdp/xrdp.ini
+        # Enable RDP through Windows Firewall
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
         
-        # Configure session
-        echo "xfce4-session" | sudo tee /etc/xrdp/startwm.sh
+        # Set RDP authentication (disable NLA for easier access)
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
         
-        # Fix permissions
-        sudo chmod +x /etc/xrdp/startwm.sh
+        # Start Remote Desktop Services
+        Set-Service -Name TermService -StartupType Automatic
+        Start-Service -Name TermService
         
-        # Configure polkit (create directory first)
-        sudo mkdir -p /etc/polkit-1/localauthority/50-local.d/
-        
-        # Create polkit configuration file
-        echo '[Allow Colord all Users]' | sudo tee /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
-        echo 'Identity=unix-user:*' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
-        echo 'Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
-        echo 'ResultAny=no' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
-        echo 'ResultInactive=no' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
-        echo 'ResultActive=yes' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
+        Write-Host "RDP has been enabled successfully"
     
     - name: Create RDP User
+      shell: powershell
       run: |
-        # Create a user for RDP access
-        sudo useradd -m -s /bin/bash rdpuser || echo "User might already exist"
-        echo "rdpuser:ChangeMe123!" | sudo chpasswd
-        sudo usermod -aG sudo rdpuser
+        # Create a new user for RDP access
+        $Username = "rdpuser"
+        $Password = ConvertTo-SecureString "mehraz@OP9900" -AsPlainText -Force
         
-        # Setup home directory
-        sudo mkdir -p /home/rdpuser/Desktop
-        sudo chown -R rdpuser:rdpuser /home/rdpuser
+        # Create the user
+        New-LocalUser -Name $Username -Password $Password -FullName "RDP User" -Description "User for RDP Access" -ErrorAction SilentlyContinue
         
-        echo "==================================="
-        echo "RDP User Created:"
-        echo "Username: rdpuser"
-        echo "Password: ChangeMe123!"
-        echo "==================================="
+        # Add user to necessary groups
+        Add-LocalGroupMember -Group "Users" -Member $Username -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction SilentlyContinue
+        
+        # Ensure password never expires
+        Set-LocalUser -Name $Username -PasswordNeverExpires $true
+        
+        Write-Host "==================================="
+        Write-Host "RDP User Created:"
+        Write-Host "Username: rdpuser"
+        Write-Host "Password: mehraz@OP9900"
+        Write-Host "==================================="
+    
+    - name: Install Chocolatey
+      shell: powershell
+      run: |
+        # Install Chocolatey package manager
+        if (!(Test-Path "$env:ProgramData\chocolatey\choco.exe")) {
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        }
+        
+        # Refresh environment variables
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     
     - name: Install Tailscale
+      shell: powershell
       run: |
-        # Add Tailscale's package signing key and repository (updated method)
-        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+        # Download Tailscale for Windows
+        Write-Host "Downloading Tailscale..."
+        $tailscaleUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+        $msiPath = "$env:TEMP\tailscale.msi"
         
-        # Install Tailscale
-        sudo apt-get update
-        sudo apt-get install -y tailscale
+        Invoke-WebRequest -Uri $tailscaleUrl -OutFile $msiPath
+        
+        # Install Tailscale silently
+        Write-Host "Installing Tailscale..."
+        Start-Process msiexec.exe -ArgumentList "/i", $msiPath, "/quiet", "/qn" -Wait
+        
+        # Wait for installation to complete
+        Start-Sleep -Seconds 10
+        
+        # Add Tailscale to PATH
+        $tailscalePath = "C:\Program Files\Tailscale"
+        if (Test-Path $tailscalePath) {
+          $env:Path += ";$tailscalePath"
+          [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::Process)
+        }
+        
+        Write-Host "Tailscale installed successfully"
     
-    - name: Start Services
-      run: |
-        # Start XRDP service (using service command instead of systemctl)
-        sudo service xrdp restart || true
-        sudo service xrdp status || true
-        
-        # Start Tailscale daemon in background
-        sudo nohup tailscaled > tailscaled.log 2>&1 &
-        sleep 5
-        
-        # Check if tailscaled is running
-        ps aux | grep tailscaled | grep -v grep || echo "tailscaled might not be running"
-    
-    - name: Connect to Tailscale
+    - name: Configure and Start Tailscale
+      shell: powershell
       env:
         TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY || github.event.inputs.authkey }}
       run: |
-        # Authenticate with Tailscale
-        if [ -z "$TAILSCALE_AUTHKEY" ]; then
-          echo "No Tailscale auth key provided. Generating login URL..."
-          sudo -E tailscale up --ssh 2>&1 || true
-        else
-          sudo -E tailscale up --authkey="$TAILSCALE_AUTHKEY" --ssh --accept-routes 2>&1 || true
-        fi
+        # Start Tailscale service
+        Start-Service -Name Tailscale -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 5
         
-        # Wait for connection
-        sleep 10
+        # Get Tailscale executable path
+        $tailscale = "C:\Program Files\Tailscale\tailscale.exe"
         
-        # Display Tailscale status
-        sudo tailscale status || echo "Failed to get Tailscale status"
-        
-        # Get Tailscale IP
-        TAILSCALE_IP=$(sudo tailscale ip -4 2>/dev/null || echo "Not connected")
-        echo "==================================="
-        echo "Tailscale IP: $TAILSCALE_IP"
-        echo "==================================="
-        
-        # Save connection info
-        echo "TAILSCALE_IP=$TAILSCALE_IP" >> $GITHUB_ENV
-    
-    - name: Setup ngrok (Alternative Access)
-      run: |
-        # Download ngrok (updated URL)
-        wget -q -O ngrok.tar.gz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
-        tar -xzf ngrok.tar.gz
-        chmod +x ngrok
-        
-        # Setup ngrok (requires NGROK_AUTH_TOKEN secret)
-        if [ ! -z "${{ secrets.NGROK_AUTH_TOKEN }}" ]; then
-          ./ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-          nohup ./ngrok tcp 3390 --log=stdout > ngrok.log 2>&1 &
-          sleep 10
+        if (Test-Path $tailscale) {
+          # Authenticate with Tailscale
+          if ([string]::IsNullOrEmpty($env:TAILSCALE_AUTHKEY)) {
+            Write-Host "No Tailscale auth key provided. Starting interactive login..."
+            & $tailscale up --unattended
+          } else {
+            Write-Host "Connecting to Tailscale with auth key..."
+            & $tailscale up --authkey=$env:TAILSCALE_AUTHKEY --unattended --accept-routes
+          }
           
-          # Display ngrok URL (with proper error handling)
-          if command -v jq &> /dev/null; then
-            curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' 2>/dev/null || echo "ngrok API not available yet"
-          else
-            echo "jq not installed, cannot parse ngrok URL"
-          fi
-        else
-          echo "ngrok auth token not provided, skipping ngrok setup"
-        fi
+          # Wait for connection
+          Start-Sleep -Seconds 10
+          
+          # Get Tailscale status
+          & $tailscale status
+          
+          # Get Tailscale IP
+          $tailscaleIP = & $tailscale ip -4
+          Write-Host "==================================="
+          Write-Host "Tailscale IP: $tailscaleIP"
+          Write-Host "==================================="
+          
+          # Save to environment variable
+          echo "TAILSCALE_IP=$tailscaleIP" >> $env:GITHUB_ENV
+        } else {
+          Write-Host "Tailscale executable not found!"
+        }
+    
+    - name: Install ngrok (Alternative Access)
+      shell: powershell
+      run: |
+        if (![string]::IsNullOrEmpty("${{ secrets.NGROK_AUTH_TOKEN }}")) {
+          # Download ngrok
+          Write-Host "Downloading ngrok..."
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "$env:TEMP\ngrok.zip"
+          
+          # Extract ngrok
+          Expand-Archive -Path "$env:TEMP\ngrok.zip" -DestinationPath "$env:TEMP\ngrok" -Force
+          
+          # Configure ngrok
+          & "$env:TEMP\ngrok\ngrok.exe" config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
+          
+          # Start ngrok tunnel for RDP (port 3389)
+          Start-Process -FilePath "$env:TEMP\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
+          
+          Start-Sleep -Seconds 10
+          
+          # Try to get ngrok URL
+          try {
+            $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -ErrorAction SilentlyContinue
+            $ngrokUrl = $response.tunnels[0].public_url
+            Write-Host "ngrok URL: $ngrokUrl"
+          } catch {
+            Write-Host "Could not retrieve ngrok URL"
+          }
+        } else {
+          Write-Host "ngrok auth token not provided, skipping ngrok setup"
+        }
+    
+    - name: Configure Windows Defender Exclusions
+      shell: powershell
+      run: |
+        # Add exclusions to prevent interference
+        Add-MpPreference -ExclusionPath "C:\Program Files\Tailscale" -ErrorAction SilentlyContinue
+        Add-MpPreference -ExclusionProcess "tailscale.exe" -ErrorAction SilentlyContinue
+        Add-MpPreference -ExclusionProcess "tailscaled.exe" -ErrorAction SilentlyContinue
+        
+        Write-Host "Windows Defender exclusions configured"
     
     - name: Display Connection Information
+      shell: powershell
       run: |
-        echo "======================================="
-        echo "Connection Information:"
-        echo "======================================="
-        if [ ! -z "${{ env.TAILSCALE_IP }}" ] && [ "${{ env.TAILSCALE_IP }}" != "Not connected" ]; then
-          echo "Tailscale IP: ${{ env.TAILSCALE_IP }}"
-          echo "RDP Port: 3390"
-        else
-          echo "Tailscale connection failed or not configured"
-        fi
-        echo "Username: rdpuser"
-        echo "Password: ChangeMe123!"
-        echo ""
-        echo "To connect via Tailscale:"
-        echo "1. Install Tailscale on your local machine"
-        echo "2. Connect to your Tailscale network"
-        echo "3. Use RDP client to connect to: ${{ env.TAILSCALE_IP }}:3390"
-        echo "======================================="
+        Write-Host "======================================="
+        Write-Host "Connection Information:"
+        Write-Host "======================================="
         
-        # Check if ngrok is running
-        if [ -f ngrok.log ]; then
-          echo ""
-          echo "ngrok tunnel (if configured):"
-          grep "started tunnel" ngrok.log 2>/dev/null || echo "ngrok not running or still starting"
-        fi
+        # Get computer info
+        $computerName = $env:COMPUTERNAME
+        Write-Host "Computer Name: $computerName"
+        
+        # Get IP addresses
+        $ipAddresses = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.InterfaceAlias -notlike "*Loopback*"} | Select-Object -ExpandProperty IPAddress
+        Write-Host "Local IP Addresses:"
+        $ipAddresses | ForEach-Object { Write-Host "  - $_" }
+        
+        if (Test-Path env:TAILSCALE_IP) {
+          Write-Host ""
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+        }
+        
+        Write-Host ""
+        Write-Host "RDP Port: 3389"
+        Write-Host "Username: rdpuser"
+        Write-Host "Password: mehraz@OP9900"
+        Write-Host ""
+        Write-Host "To connect via Tailscale:"
+        Write-Host "1. Install Tailscale on your local machine"
+        Write-Host "2. Connect to your Tailscale network"
+        Write-Host "3. Use Remote Desktop Client to connect to:"
+        Write-Host "   Address: $env:TAILSCALE_IP"
+        Write-Host "   Username: rdpuser"
+        Write-Host "   Password: mehraz@OP9900"
+        Write-Host "======================================="
     
     - name: Keep Alive (6 hours max for public repos)
+      shell: powershell
       run: |
-        # GitHub Actions timeout for public repos is 6 hours
-        # For 24 hours, you need self-hosted runners or implement restart logic
+        Write-Host "Keeping the workflow alive..."
+        Write-Host "Note: This will run for maximum 6 hours on public repos"
+        Write-Host "For 24-hour operation, use self-hosted runners"
         
-        echo "Keeping the workflow alive..."
-        echo "Note: This will run for maximum 6 hours on public repos"
-        echo "For 24-hour operation, use self-hosted runners"
-        
-        # Keep alive for ~6 hours (21600 seconds)
-        for i in {1..360}; do
-          echo "Alive for $((i*60)) seconds... ($(date))"
+        # Keep alive for ~6 hours (360 minutes)
+        for ($i = 1; $i -le 360; $i++) {
+          $elapsed = $i * 60
+          Write-Host "Alive for $elapsed seconds... $(Get-Date)"
           
-          # Check services status every 10 minutes
-          if [ $((i % 10)) -eq 0 ]; then
-            echo "Checking services..."
-            sudo service xrdp status || sudo service xrdp restart || true
-            sudo tailscale status 2>/dev/null || echo "Tailscale status check failed"
-          fi
+          # Check services every 10 minutes
+          if ($i % 10 -eq 0) {
+            Write-Host "Checking services..."
+            
+            # Check RDP service
+            $rdpService = Get-Service -Name TermService -ErrorAction SilentlyContinue
+            if ($rdpService.Status -ne 'Running') {
+              Start-Service -Name TermService -ErrorAction SilentlyContinue
+              Write-Host "Restarted RDP service"
+            }
+            
+            # Check Tailscale
+            $tailscaleService = Get-Service -Name Tailscale -ErrorAction SilentlyContinue
+            if ($tailscaleService -and $tailscaleService.Status -ne 'Running') {
+              Start-Service -Name Tailscale -ErrorAction SilentlyContinue
+              Write-Host "Restarted Tailscale service"
+            }
+          }
           
-          sleep 60
-        done
+          Start-Sleep -Seconds 60
+        }
         
-        echo "Workflow completed after 6 hours"
-
+        Write-Host "Workflow completed after 6 hours"
+    
     - name: Cleanup (runs on cancellation)
       if: cancelled()
+      shell: powershell
       run: |
-        echo "Cleaning up..."
-        sudo tailscale down 2>/dev/null || true
-        sudo service xrdp stop || true
-        pkill ngrok || true
+        Write-Host "Cleaning up..."
+        
+        # Disconnect Tailscale
+        $tailscale = "C:\Program Files\Tailscale\tailscale.exe"
+        if (Test-Path $tailscale) {
+          & $tailscale down
+        }
+        
+        # Stop services
+        Stop-Service -Name Tailscale -Force -ErrorAction SilentlyContinue
+        
+        # Kill ngrok if running
+        Stop-Process -Name ngrok -Force -ErrorAction SilentlyContinue
+        
+        Write-Host "Cleanup completed"
