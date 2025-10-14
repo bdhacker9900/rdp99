@@ -1,88 +1,198 @@
-# .github/workflows/rdp-via-tailscale.yml
+name: Ubuntu RDP via Tailscale
 
-name: Ubuntu RDP rrrrrr
-
-# This allows you to run the workflow manually from the Actions tab
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      authkey:
+        description: 'Tailscale Auth Key (optional if using secrets)'
+        required: false
+        type: string
 
 jobs:
-  rdp_session:
+  ubuntu-rdp:
     runs-on: ubuntu-latest
-    name: Start RDP Session
     
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: 1. Install Dependencies
-        run: |
-          echo "Installing Desktop Environment and RDP Server..."
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive \
-            apt-get install -y \
-            xfce4 \
-            xfce4-goodies \
-            dbus-x11 \
-            xrdp
-          echo "Installation complete."
-
-      - name: 2. Create User and Set Password
-        run: |
-          # --- INSECURE METHOD (As requested) ---
-          # The password is visible in the workflow file.
-          echo "Creating user 'mehraz' with the specified password."
-          sudo useradd -m -s /bin/bash mehraz
-          sudo adduser mehraz sudo
-          echo 'mehraz:mehraz99008877' | sudo chpasswd
-          echo "User 'mehraz' created."
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Setup Ubuntu Desktop Environment
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          ubuntu-desktop \
+          xrdp \
+          xfce4 \
+          xfce4-goodies \
+          xorg \
+          dbus-x11 \
+          x11-xserver-utils \
+          sudo \
+          wget \
+          curl \
+          nano \
+          git \
+          firefox
+    
+    - name: Configure XRDP
+      run: |
+        # Configure XRDP to use Xfce
+        sudo sed -i 's/3389/3390/g' /etc/xrdp/xrdp.ini
+        sudo sed -i 's/max_bpp=32/#max_bpp=32\nmax_bpp=128/g' /etc/xrdp/xrdp.ini
+        sudo sed -i 's/xserverbpp=24/#xserverbpp=24\nxserverbpp=128/g' /etc/xrdp/xrdp.ini
+        
+        # Configure session
+        echo xfce4-session > ~/.xsession
+        sudo cp ~/.xsession /etc/skel/
+        
+        # Fix permissions
+        sudo chmod 755 /etc/xrdp/startwm.sh
+        
+        # Configure polkit
+        sudo bash -c 'cat <<EOF > /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
+        [Allow Colord all Users]
+        Identity=unix-user:*
+        Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
+        ResultAny=no
+        ResultInactive=no
+        ResultActive=yes
+        EOF'
+    
+    - name: Create RDP User
+      run: |
+        # Create a user for RDP access
+        sudo useradd -m -s /bin/bash rdpuser
+        echo "rdpuser:ChangeMe123!" | sudo chpasswd
+        sudo usermod -aG sudo rdpuser
+        
+        # Setup home directory
+        sudo mkdir -p /home/rdpuser/Desktop
+        sudo chown -R rdpuser:rdpuser /home/rdpuser
+        
+        echo "==================================="
+        echo "RDP User Created:"
+        echo "Username: rdpuser"
+        echo "Password: ChangeMe123!"
+        echo "==================================="
+    
+    - name: Install Tailscale
+      run: |
+        # Add Tailscale's package signing key and repository
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/focal.noarch.gpg | sudo apt-key add -
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/focal.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+        
+        # Install Tailscale
+        sudo apt-get update
+        sudo apt-get install -y tailscale
+    
+    - name: Start Services
+      run: |
+        # Start XRDP service
+        sudo systemctl enable xrdp
+        sudo systemctl restart xrdp
+        sudo systemctl status xrdp
+        
+        # Start Tailscale
+        sudo tailscaled &
+        sleep 5
+    
+    - name: Connect to Tailscale
+      env:
+        TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY || github.event.inputs.authkey }}
+      run: |
+        # Authenticate with Tailscale
+        if [ -z "$TAILSCALE_AUTHKEY" ]; then
+          echo "No Tailscale auth key provided. Generating login URL..."
+          sudo tailscale up --ssh
+        else
+          sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --ssh --accept-routes
+        fi
+        
+        # Wait for connection
+        sleep 10
+        
+        # Display Tailscale status
+        sudo tailscale status
+        
+        # Get Tailscale IP
+        TAILSCALE_IP=$(sudo tailscale ip -4)
+        echo "==================================="
+        echo "Tailscale IP: $TAILSCALE_IP"
+        echo "==================================="
+        
+        # Save connection info
+        echo "TAILSCALE_IP=$TAILSCALE_IP" >> $GITHUB_ENV
+    
+    - name: Setup ngrok (Alternative Access)
+      run: |
+        # Install ngrok as backup access method
+        wget -q -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
+        unzip ngrok.zip
+        chmod +x ngrok
+        
+        # Setup ngrok (requires NGROK_AUTH_TOKEN secret)
+        if [ ! -z "${{ secrets.NGROK_AUTH_TOKEN }}" ]; then
+          ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          ./ngrok tcp 3390 --log=stdout > ngrok.log &
+          sleep 10
           
-          # --- SECURE METHOD (Recommended) ---
-          # 1. Create another repository secret named RDP_PASSWORD with your desired password.
-          # 2. Comment out the lines above and uncomment the lines below.
-          #
-          # echo "Creating user 'mehraz' with a password from GitHub Secrets."
-          # sudo useradd -m -s /bin/bash mehraz
-          # sudo adduser mehraz sudo
-          # echo "mehraz:${{ secrets.RDP_PASSWORD }}" | sudo chpasswd
-          # echo "User 'mehraz' created."
-
-      - name: 3. Configure RDP Session
-        run: |
-          echo "Configuring RDP to use XFCE desktop..."
-          # Set XFCE as the default session for the new user
-          echo "xfce4-session" > /home/mehraz/.xsession
-          sudo chown mehraz:mehraz /home/mehraz/.xsession
+          # Display ngrok URL
+          curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' || echo "ngrok not configured"
+        else
+          echo "ngrok auth token not provided, skipping ngrok setup"
+        fi
+    
+    - name: Display Connection Information
+      run: |
+        echo "======================================="
+        echo "Connection Information:"
+        echo "======================================="
+        echo "Tailscale IP: ${{ env.TAILSCALE_IP }}"
+        echo "RDP Port: 3390"
+        echo "Username: rdpuser"
+        echo "Password: ChangeMe123!"
+        echo ""
+        echo "To connect via Tailscale:"
+        echo "1. Install Tailscale on your local machine"
+        echo "2. Connect to your Tailscale network"
+        echo "3. Use RDP client to connect to: ${{ env.TAILSCALE_IP }}:3390"
+        echo "======================================="
+        
+        # Check if ngrok is running
+        if [ -f ngrok.log ]; then
+          echo ""
+          echo "ngrok tunnel (if configured):"
+          cat ngrok.log | grep "started tunnel" || echo "ngrok not running"
+        fi
+    
+    - name: Keep Alive (6 hours max for public repos)
+      run: |
+        # GitHub Actions timeout for public repos is 6 hours
+        # For 24 hours, you need self-hosted runners or implement restart logic
+        
+        echo "Keeping the workflow alive..."
+        echo "Note: This will run for maximum 6 hours on public repos"
+        echo "For 24-hour operation, use self-hosted runners"
+        
+        # Keep alive for ~6 hours (21600 seconds)
+        for i in {1..360}; do
+          echo "Alive for $((i*60)) seconds... ($(date))"
           
-          # Restart the xrdp service to apply all changes
-          sudo systemctl restart xrdp
-          echo "RDP configuration complete."
-
-      - name: 4. Install and Connect to Tailscale
-        run: |
-          echo "Installing and connecting to Tailscale..."
-          # Install Tailscale using the official script
-          curl -fsSL https://tailscale.com/install.sh | sh
+          # Check services status every 10 minutes
+          if [ $((i % 10)) -eq 0 ]; then
+            echo "Checking services..."
+            sudo systemctl status xrdp --no-pager || sudo systemctl restart xrdp
+            sudo tailscale status || echo "Tailscale status check failed"
+          fi
           
-          # Start Tailscale and connect using the auth key from secrets
-          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTH_KEY }} --hostname github-rdp-runner
-          echo "Tailscale connected."
+          sleep 60
+        done
+        
+        echo "Workflow completed after 6 hours"
 
-      - name: 5. Keep Workflow Alive
-        run: |
-          echo "################################################################"
-          echo "##"
-          echo "##  RDP SESSION IS READY!"
-          echo "##"
-          echo "##  1. Go to your Tailscale Admin Console: https://login.tailscale.com/admin/machines"
-          echo "##  2. Find the machine named 'github-rdp-runner' and copy its IP address."
-          echo "##  3. Connect using any RDP client (e.g., Microsoft Remote Desktop)."
-          echo "##"
-          echo "##  Username: mehraz"
-          echo "##  Password: [The one you set]"
-          echo "##"
-          echo "##  This session will remain active for up to 6 hours."
-          echo "##  To stop it, cancel the workflow run in the GitHub Actions tab."
-          echo "##"
-          echo "################################################################"
-          # The workflow will stop after 6 hours, or when you manually cancel it.
-          sleep 6h
+    - name: Cleanup (runs on cancellation)
+      if: cancelled()
+      run: |
+        echo "Cleaning up..."
+        sudo tailscale down
+        sudo systemctl stop xrdp
