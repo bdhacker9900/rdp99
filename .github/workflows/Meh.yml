@@ -1,0 +1,88 @@
+# .github/workflows/rdp-via-tailscale.yml
+
+name: Ubuntu RDP rrrrrr
+
+# This allows you to run the workflow manually from the Actions tab
+on: workflow_dispatch
+
+jobs:
+  rdp_session:
+    runs-on: ubuntu-latest
+    name: Start RDP Session
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 1. Install Dependencies
+        run: |
+          echo "Installing Desktop Environment and RDP Server..."
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y \
+            xfce4 \
+            xfce4-goodies \
+            dbus-x11 \
+            xrdp
+          echo "Installation complete."
+
+      - name: 2. Create User and Set Password
+        run: |
+          # --- INSECURE METHOD (As requested) ---
+          # The password is visible in the workflow file.
+          echo "Creating user 'mehraz' with the specified password."
+          sudo useradd -m -s /bin/bash mehraz
+          sudo adduser mehraz sudo
+          echo 'mehraz:mehraz99008877' | sudo chpasswd
+          echo "User 'mehraz' created."
+          
+          # --- SECURE METHOD (Recommended) ---
+          # 1. Create another repository secret named RDP_PASSWORD with your desired password.
+          # 2. Comment out the lines above and uncomment the lines below.
+          #
+          # echo "Creating user 'mehraz' with a password from GitHub Secrets."
+          # sudo useradd -m -s /bin/bash mehraz
+          # sudo adduser mehraz sudo
+          # echo "mehraz:${{ secrets.RDP_PASSWORD }}" | sudo chpasswd
+          # echo "User 'mehraz' created."
+
+      - name: 3. Configure RDP Session
+        run: |
+          echo "Configuring RDP to use XFCE desktop..."
+          # Set XFCE as the default session for the new user
+          echo "xfce4-session" > /home/mehraz/.xsession
+          sudo chown mehraz:mehraz /home/mehraz/.xsession
+          
+          # Restart the xrdp service to apply all changes
+          sudo systemctl restart xrdp
+          echo "RDP configuration complete."
+
+      - name: 4. Install and Connect to Tailscale
+        run: |
+          echo "Installing and connecting to Tailscale..."
+          # Install Tailscale using the official script
+          curl -fsSL https://tailscale.com/install.sh | sh
+          
+          # Start Tailscale and connect using the auth key from secrets
+          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTH_KEY }} --hostname github-rdp-runner
+          echo "Tailscale connected."
+
+      - name: 5. Keep Workflow Alive
+        run: |
+          echo "################################################################"
+          echo "##"
+          echo "##  RDP SESSION IS READY!"
+          echo "##"
+          echo "##  1. Go to your Tailscale Admin Console: https://login.tailscale.com/admin/machines"
+          echo "##  2. Find the machine named 'github-rdp-runner' and copy its IP address."
+          echo "##  3. Connect using any RDP client (e.g., Microsoft Remote Desktop)."
+          echo "##"
+          echo "##  Username: mehraz"
+          echo "##  Password: [The one you set]"
+          echo "##"
+          echo "##  This session will remain active for up to 6 hours."
+          echo "##  To stop it, cancel the workflow run in the GitHub Actions tab."
+          echo "##"
+          echo "################################################################"
+          # The workflow will stop after 6 hours, or when you manually cancel it.
+          sleep 6h
