@@ -20,48 +20,51 @@ jobs:
       run: |
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          ubuntu-desktop \
-          xrdp \
           xfce4 \
           xfce4-goodies \
+          xrdp \
           xorg \
           dbus-x11 \
           x11-xserver-utils \
-          sudo \
           wget \
           curl \
           nano \
           git \
-          firefox
+          firefox \
+          jq \
+          net-tools
     
     - name: Configure XRDP
       run: |
+        # Start XRDP service (without systemctl since we're in container)
+        sudo service xrdp start || true
+        
         # Configure XRDP to use Xfce
-        sudo sed -i 's/3389/3390/g' /etc/xrdp/xrdp.ini
+        sudo sed -i 's/port=3389/port=3390/g' /etc/xrdp/xrdp.ini
         sudo sed -i 's/max_bpp=32/#max_bpp=32\nmax_bpp=128/g' /etc/xrdp/xrdp.ini
         sudo sed -i 's/xserverbpp=24/#xserverbpp=24\nxserverbpp=128/g' /etc/xrdp/xrdp.ini
         
         # Configure session
-        echo xfce4-session > ~/.xsession
-        sudo cp ~/.xsession /etc/skel/
+        echo "xfce4-session" | sudo tee /etc/xrdp/startwm.sh
         
         # Fix permissions
-        sudo chmod 755 /etc/xrdp/startwm.sh
+        sudo chmod +x /etc/xrdp/startwm.sh
         
-        # Configure polkit
+        # Configure polkit (create directory first)
+        sudo mkdir -p /etc/polkit-1/localauthority/50-local.d/
         sudo bash -c 'cat <<EOF > /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
-        [Allow Colord all Users]
-        Identity=unix-user:*
-        Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
-        ResultAny=no
-        ResultInactive=no
-        ResultActive=yes
-        EOF'
+[Allow Colord all Users]
+Identity=unix-user:*
+Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
+ResultAny=no
+ResultInactive=no
+ResultActive=yes
+EOF'
     
     - name: Create RDP User
       run: |
         # Create a user for RDP access
-        sudo useradd -m -s /bin/bash rdpuser
+        sudo useradd -m -s /bin/bash rdpuser || echo "User might already exist"
         echo "rdpuser:ChangeMe123!" | sudo chpasswd
         sudo usermod -aG sudo rdpuser
         
@@ -77,9 +80,9 @@ jobs:
     
     - name: Install Tailscale
       run: |
-        # Add Tailscale's package signing key and repository
-        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/focal.noarch.gpg | sudo apt-key add -
-        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/focal.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+        # Add Tailscale's package signing key and repository (updated method)
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
         
         # Install Tailscale
         sudo apt-get update
@@ -87,14 +90,16 @@ jobs:
     
     - name: Start Services
       run: |
-        # Start XRDP service
-        sudo systemctl enable xrdp
-        sudo systemctl restart xrdp
-        sudo systemctl status xrdp
+        # Start XRDP service (using service command instead of systemctl)
+        sudo service xrdp restart || true
+        sudo service xrdp status || true
         
-        # Start Tailscale
-        sudo tailscaled &
+        # Start Tailscale daemon in background
+        sudo nohup tailscaled > tailscaled.log 2>&1 &
         sleep 5
+        
+        # Check if tailscaled is running
+        ps aux | grep tailscaled | grep -v grep || echo "tailscaled might not be running"
     
     - name: Connect to Tailscale
       env:
@@ -103,19 +108,19 @@ jobs:
         # Authenticate with Tailscale
         if [ -z "$TAILSCALE_AUTHKEY" ]; then
           echo "No Tailscale auth key provided. Generating login URL..."
-          sudo tailscale up --ssh
+          sudo -E tailscale up --ssh 2>&1 || true
         else
-          sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --ssh --accept-routes
+          sudo -E tailscale up --authkey="$TAILSCALE_AUTHKEY" --ssh --accept-routes 2>&1 || true
         fi
         
         # Wait for connection
         sleep 10
         
         # Display Tailscale status
-        sudo tailscale status
+        sudo tailscale status || echo "Failed to get Tailscale status"
         
         # Get Tailscale IP
-        TAILSCALE_IP=$(sudo tailscale ip -4)
+        TAILSCALE_IP=$(sudo tailscale ip -4 2>/dev/null || echo "Not connected")
         echo "==================================="
         echo "Tailscale IP: $TAILSCALE_IP"
         echo "==================================="
@@ -125,19 +130,23 @@ jobs:
     
     - name: Setup ngrok (Alternative Access)
       run: |
-        # Install ngrok as backup access method
-        wget -q -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
-        unzip ngrok.zip
+        # Download ngrok (updated URL)
+        wget -q -O ngrok.tar.gz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        tar -xzf ngrok.tar.gz
         chmod +x ngrok
         
         # Setup ngrok (requires NGROK_AUTH_TOKEN secret)
         if [ ! -z "${{ secrets.NGROK_AUTH_TOKEN }}" ]; then
-          ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-          ./ngrok tcp 3390 --log=stdout > ngrok.log &
+          ./ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          nohup ./ngrok tcp 3390 --log=stdout > ngrok.log 2>&1 &
           sleep 10
           
-          # Display ngrok URL
-          curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' || echo "ngrok not configured"
+          # Display ngrok URL (with proper error handling)
+          if command -v jq &> /dev/null; then
+            curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' 2>/dev/null || echo "ngrok API not available yet"
+          else
+            echo "jq not installed, cannot parse ngrok URL"
+          fi
         else
           echo "ngrok auth token not provided, skipping ngrok setup"
         fi
@@ -147,8 +156,12 @@ jobs:
         echo "======================================="
         echo "Connection Information:"
         echo "======================================="
-        echo "Tailscale IP: ${{ env.TAILSCALE_IP }}"
-        echo "RDP Port: 3390"
+        if [ ! -z "${{ env.TAILSCALE_IP }}" ] && [ "${{ env.TAILSCALE_IP }}" != "Not connected" ]; then
+          echo "Tailscale IP: ${{ env.TAILSCALE_IP }}"
+          echo "RDP Port: 3390"
+        else
+          echo "Tailscale connection failed or not configured"
+        fi
         echo "Username: rdpuser"
         echo "Password: ChangeMe123!"
         echo ""
@@ -162,7 +175,7 @@ jobs:
         if [ -f ngrok.log ]; then
           echo ""
           echo "ngrok tunnel (if configured):"
-          cat ngrok.log | grep "started tunnel" || echo "ngrok not running"
+          grep "started tunnel" ngrok.log 2>/dev/null || echo "ngrok not running or still starting"
         fi
     
     - name: Keep Alive (6 hours max for public repos)
@@ -181,8 +194,8 @@ jobs:
           # Check services status every 10 minutes
           if [ $((i % 10)) -eq 0 ]; then
             echo "Checking services..."
-            sudo systemctl status xrdp --no-pager || sudo systemctl restart xrdp
-            sudo tailscale status || echo "Tailscale status check failed"
+            sudo service xrdp status || sudo service xrdp restart || true
+            sudo tailscale status 2>/dev/null || echo "Tailscale status check failed"
           fi
           
           sleep 60
@@ -194,5 +207,6 @@ jobs:
       if: cancelled()
       run: |
         echo "Cleaning up..."
-        sudo tailscale down
-        sudo systemctl stop xrdp
+        sudo tailscale down 2>/dev/null || true
+        sudo service xrdp stop || true
+        pkill ngrok || true
