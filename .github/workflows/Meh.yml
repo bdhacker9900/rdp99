@@ -1,4 +1,4 @@
-name: UbuntuP via Tailscale
+name: Ubuntu RDP via Tailscale
 
 on:
   workflow_dispatch:
@@ -52,14 +52,14 @@ jobs:
         
         # Configure polkit (create directory first)
         sudo mkdir -p /etc/polkit-1/localauthority/50-local.d/
-        sudo bash -c 'cat <<EOF > /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
-[Allow Colord all Users]
-Identity=unix-user:*
-Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile
-ResultAny=no
-ResultInactive=no
-ResultActive=yes
-EOF'
+        
+        # Create polkit configuration file
+        echo '[Allow Colord all Users]' | sudo tee /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
+        echo 'Identity=unix-user:*' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
+        echo 'Action=org.freedesktop.color-manager.create-device;org.freedesktop.color-manager.create-profile;org.freedesktop.color-manager.delete-device;org.freedesktop.color-manager.delete-profile;org.freedesktop.color-manager.modify-device;org.freedesktop.color-manager.modify-profile' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
+        echo 'ResultAny=no' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
+        echo 'ResultInactive=no' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
+        echo 'ResultActive=yes' | sudo tee -a /etc/polkit-1/localauthority/50-local.d/45-allow-colord.pkla
     
     - name: Create RDP User
       run: |
