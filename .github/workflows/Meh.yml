@@ -1,5 +1,4 @@
-name: Ubuntu RDP via zsdhfsdfhgsdfhgsdfhgsjdfghsjdhjdfhhsdjhjsdkhgsjd
-
+name: Ubuntu RDP via zsdhfsd
 on:
   workflow_dispatch:
     inputs:
