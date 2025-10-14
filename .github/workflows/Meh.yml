@@ -1,4 +1,5 @@
-name: Ubuntu RDP via zsdhfsd
+name: UbuntuP via Tailscale
+
 on:
   workflow_dispatch:
     inputs:
