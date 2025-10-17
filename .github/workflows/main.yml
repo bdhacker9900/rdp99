@@ -44,53 +44,94 @@ jobs:
           Write-Host "RDP configuration completed successfully"
 
       - name: Create RDP User with Fixed Password
-        shell: cmd
+        shell: powershell
         run: |
-          @echo off
-          echo Creating user account...
+          Write-Host "Creating user account..."
           
-          :: Delete user if exists (ignore errors)
-          net user mehraz /delete 2>nul
+          # Strong password that meets Windows Server requirements
+          $password = "M3hr@z!2024#Secure"
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
           
-          :: Create new user with new password
-          net user mehraz "mEHrazop@i9900" /add /y
+          # Remove user if exists
+          try {
+              Remove-LocalUser -Name "mehraz" -ErrorAction SilentlyContinue
+              Write-Host "Removed existing user"
+          } catch {
+              Write-Host "No existing user to remove"
+          }
           
-          :: Add to Administrators group
-          net localgroup Administrators mehraz /add
+          # Create new local user
+          try {
+              New-LocalUser -Name "mehraz" `
+                           -Password $securePassword `
+                           -FullName "Mehraz User" `
+                           -Description "RDP User Account" `
+                           -PasswordNeverExpires `
+                           -AccountNeverExpires `
+                           -ErrorAction Stop
+              
+              Write-Host "User 'mehraz' created successfully"
+          } catch {
+              Write-Error "Failed to create user: $_"
+              exit 1
+          }
           
-          :: Add to Remote Desktop Users group
-          net localgroup "Remote Desktop Users" mehraz /add
+          # Add to Administrators group
+          try {
+              Add-LocalGroupMember -Group "Administrators" -Member "mehraz" -ErrorAction Stop
+              Write-Host "Added to Administrators group"
+          } catch {
+              Write-Warning "Could not add to Administrators: $_"
+          }
           
-          :: Activate the user
-          net user mehraz /active:yes
+          # Add to Remote Desktop Users group
+          try {
+              Add-LocalGroupMember -Group "Remote Desktop Users" -Member "mehraz" -ErrorAction Stop
+              Write-Host "Added to Remote Desktop Users group"
+          } catch {
+              Write-Warning "Could not add to Remote Desktop Users: $_"
+          }
           
-          :: Display user info
-          echo.
-          echo User created successfully:
-          net user mehraz
+          # Enable the user account
+          Enable-LocalUser -Name "mehraz"
           
-          :: Save password to GitHub env
-          echo RDP_PASSWORD=mEHrazop@i9900>> %GITHUB_ENV%
+          # Save password to GitHub env
+          echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
+          
+          # Display user info
+          Write-Host "`nUser configuration:"
+          Get-LocalUser -Name "mehraz" | Format-List Name, Enabled, Description
+          
+          Write-Host "`nPassword: $password"
 
       - name: Verify User Creation
         run: |
           Write-Host "Verifying user creation..."
           
           # Check if user exists
-          $user = net user mehraz 2>$null
-          if ($LASTEXITCODE -eq 0) {
+          $user = Get-LocalUser -Name "mehraz" -ErrorAction SilentlyContinue
+          if ($user) {
               Write-Host "✓ User 'mehraz' exists"
+              Write-Host "  Enabled: $($user.Enabled)"
+              Write-Host "  Full Name: $($user.FullName)"
               
               # Check group memberships
               Write-Host "`nChecking group memberships:"
-              $adminGroup = net localgroup Administrators 2>$null | Select-String "mehraz"
-              if ($adminGroup) {
+              
+              $isAdmin = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue | 
+                         Where-Object { $_.Name -like "*mehraz" }
+              if ($isAdmin) {
                   Write-Host "✓ User is in Administrators group"
+              } else {
+                  Write-Warning "User is NOT in Administrators group"
               }
               
-              $rdpGroup = net localgroup "Remote Desktop Users" 2>$null | Select-String "mehraz"
-              if ($rdpGroup) {
+              $isRdpUser = Get-LocalGroupMember -Group "Remote Desktop Users" -ErrorAction SilentlyContinue | 
+                           Where-Object { $_.Name -like "*mehraz" }
+              if ($isRdpUser) {
                   Write-Host "✓ User is in Remote Desktop Users group"
+              } else {
+                  Write-Warning "User is NOT in Remote Desktop Users group"
               }
           } else {
               Write-Error "User creation verification failed"
@@ -209,7 +250,7 @@ jobs:
         run: |
           # Set password variable if not set
           if (-not $env:RDP_PASSWORD) {
-              $env:RDP_PASSWORD = "mEHrazop@i9900"
+              $env:RDP_PASSWORD = "M3hr@z!2024#Secure"
           }
           
           Write-Host "`n" 
@@ -219,7 +260,7 @@ jobs:
           Write-Host ""
           Write-Host "  Tailscale IP : $env:TAILSCALE_IP"
           Write-Host "  Username     : mehraz"
-          Write-Host "  Password     : mEHrazop@i9900"
+          Write-Host "  Password     : M3hr@z!2024#Secure"
           Write-Host ""
           Write-Host "  Connect using Remote Desktop Client:"
           Write-Host "  mstsc /v:$env:TAILSCALE_IP"
