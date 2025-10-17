@@ -52,8 +52,8 @@ jobs:
           :: Delete user if exists (ignore errors)
           net user mehraz /delete 2>nul
           
-          :: Create new user
-          net user mehraz Mehraz.9900 /add /y
+          :: Create new user with new password
+          net user mehraz "mEHrazop@i9900" /add /y
           
           :: Add to Administrators group
           net localgroup Administrators mehraz /add
@@ -70,7 +70,7 @@ jobs:
           net user mehraz
           
           :: Save password to GitHub env
-          echo RDP_PASSWORD=Mehraz.9900>> %GITHUB_ENV%
+          echo RDP_PASSWORD=mEHrazop@i9900>> %GITHUB_ENV%
 
       - name: Verify User Creation
         run: |
@@ -209,7 +209,7 @@ jobs:
         run: |
           # Set password variable if not set
           if (-not $env:RDP_PASSWORD) {
-              $env:RDP_PASSWORD = "Mehraz.9900"
+              $env:RDP_PASSWORD = "mEHrazop@i9900"
           }
           
           Write-Host "`n" 
@@ -219,7 +219,7 @@ jobs:
           Write-Host ""
           Write-Host "  Tailscale IP : $env:TAILSCALE_IP"
           Write-Host "  Username     : mehraz"
-          Write-Host "  Password     : Mehraz.9900"
+          Write-Host "  Password     : mEHrazop@i9900"
           Write-Host ""
           Write-Host "  Connect using Remote Desktop Client:"
           Write-Host "  mstsc /v:$env:TAILSCALE_IP"
