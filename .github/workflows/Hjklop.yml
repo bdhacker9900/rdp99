@@ -1,0 +1,41 @@
+name: SSH Access via sshx
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches:
+      - main
+
+jobs:
+  ssh-access:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install sshx
+        run: |
+          curl -sSf https://sshx.io/get | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      
+      - name: Start sshx session
+        run: |
+          echo "Starting sshx session..."
+          sshx --shell /bin/bash &
+          sleep 5
+          echo "sshx session started!"
+          echo "Check the Actions log for the connection URL"
+      
+      - name: Keep session alive
+        run: |
+          echo "Session is running. It will stay active for the duration set below."
+          echo "Connect using the sshx URL shown above."
+          # Keep alive for 30 minutes (adjust as needed)
+          sleep 1800
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "Session ended"
+          pkill -f sshx || true
