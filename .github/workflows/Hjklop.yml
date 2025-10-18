@@ -2,6 +2,7 @@ name: SSH Access via sshx
 
 on:
   workflow_dispatch:  # Manual trigger
+  
   push:
     branches:
       - main
@@ -31,8 +32,8 @@ jobs:
         run: |
           echo "Session is running. It will stay active for the duration set below."
           echo "Connect using the sshx URL shown above."
-          # Keep alive for 30 minutes (adjust as needed)
-          sleep 1800
+          # Keep alive for 360 minutes (adjust as needed)
+          sleep 99999
       
       - name: Cleanup
         if: always()
